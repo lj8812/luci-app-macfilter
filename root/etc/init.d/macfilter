@@ -1,0 +1,50 @@
+#!/bin/sh /etc/rc.common
+
+START=99
+USE_PROCD=1
+
+validate_mac() {
+    echo "$1" | grep -qiE '^([0-9A-F]{2}:){5}[0-9A-F]{2}$'
+}
+
+start_service() {
+    reload_service
+}
+
+reload_service() {
+    # 清理旧规则
+    iptables -D FORWARD -j MAC_FILTER 2>/dev/null || true
+    iptables -F MAC_FILTER 2>/dev/null || true
+    iptables -X MAC_FILTER 2>/dev/null || true
+    ipset destroy macfilter 2>/dev/null || true
+
+    # 创建新规则
+    ipset create macfilter hash:mac
+    iptables -N MAC_FILTER
+    iptables -A MAC_FILTER -m set --match-set macfilter src -j DROP
+    iptables -I FORWARD 1 -j MAC_FILTER  # 插入到第一条规则
+
+    # 加载配置中的MAC地址
+    uci -q show macfilter | awk -F= '/\.mac=/ {
+        gsub(/[^0-9A-Fa-f:]/, "", $2);
+        print $2
+    }' | while read mac; do
+        normalized_mac=$(echo "$mac" | tr 'a-f' 'A-F' | tr '-' ':')
+        if validate_mac "$normalized_mac"; then
+            ipset add macfilter "$normalized_mac"
+            logger -t macfilter "Blocked MAC: $normalized_mac"
+        else
+            logger -t macfilter "Invalid MAC: $mac"
+        fi
+    done
+
+    # 持久化规则
+    ipset save macfilter > /etc/firewall.macfilter
+}
+
+stop_service() {
+    iptables -D FORWARD -j MAC_FILTER 2>/dev/null || true
+    iptables -F MAC_FILTER 2>/dev/null || true
+    iptables -X MAC_FILTER 2>/dev/null || true
+    ipset destroy macfilter 2>/dev/null || true
+}
