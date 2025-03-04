@@ -6,12 +6,6 @@ local nixio = require "nixio"
 local sys = require "luci.sys"
 local uci = require "luci.model.uci".cursor()
 
--- 用户信息映射表（需手动维护）
-local USER_MAPPING = {
-    ["00:11:22:33:44:55"] = "我的手机",
-    ["AA:BB:CC:DD:EE:FF"] = "办公电脑"
-}
-
 -- IPv4验证函数
 local function validate_ipv4(ip)
     if not ip then return false end
@@ -24,11 +18,12 @@ end
 -- MAC地址格式化
 local function sanitize_mac(mac)
     mac = mac:upper()
-        :gsub("O", "0")
+        :gsub("O", "0")    -- 替换常见错误字符
         :gsub("Z", "2")
-        :gsub("[:-]", "")
-        :gsub("%s+", "")
+        :gsub("[:-]", "")  -- 移除分隔符
+        :gsub("%s+", "")    -- 移除空格
     
+    -- 验证并重新格式化MAC地址
     if #mac == 12 and not mac:match("[^0-9A-F]") then
         return mac:sub(1,2)..":"..mac:sub(3,4)..":"..mac:sub(5,6)..":"..
                mac:sub(7,8)..":"..mac:sub(9,10)..":"..mac:sub(11,12)
@@ -36,20 +31,11 @@ local function sanitize_mac(mac)
     return nil
 end
 
--- 获取用户显示信息
-local function get_display_info(mac, ip, hostname, static_name)
-    -- 显示优先级：用户映射 > DHCP主机名 > 静态名称 > IP
-    return USER_MAPPING[mac] 
-        or hostname 
-        or static_name 
-        or ip
-end
-
 -- 获取静态绑定信息
 local function get_static_entries()
     local static_devices = {}
     
-    -- 解析/etc/ethers
+    -- 解析/etc/ethers文件
     local ethers = io.open("/etc/ethers", "r")
     if ethers then
         for line in ethers:lines() do
@@ -68,11 +54,8 @@ local function get_static_entries()
     uci:foreach("dhcp", "host", function(s)
         if s.mac and s.ip then
             local clean_mac = sanitize_mac(s.mac)
-            if clean_mac then
-                static_devices[clean_mac] = {
-                    ip = s.ip,
-                    name = s.name  -- 获取静态配置名称
-                }
+            if clean_mac and validate_ipv4(s.ip) then
+                static_devices[clean_mac] = s.ip
             end
         end
     end)
@@ -80,99 +63,86 @@ local function get_static_entries()
     return static_devices
 end
 
--- 设备发现函数
+-- 重构后的设备发现函数
 local function get_connected_clients()
     local devices = {}
     
-    -- 解析ARP表（标记为动态）
-    local arp_cmd = "ip -4 neigh show | awk '$1 ~ /^[0-9]{1,3}\\./{print $1,$5}'"
+    -- 获取ARP表信息（实时在线状态）
+    local arp_cmd = "ip -4 neigh show | awk '$1 ~ /^[0-9]{1,3}\\./{print $1,$5}' 2>/dev/null"
     local arp_scan = sys.exec(arp_cmd) or ""
     for ip, mac in arp_scan:gmatch("(%S+)%s+(%S+)") do
         local clean_mac = sanitize_mac(mac)
         if clean_mac and validate_ipv4(ip) then
             devices[clean_mac] = {
                 ip = ip,
-                type = "动态",  -- 直接标记为动态
-                active = true
+                type = "动态",
+                active = true  -- ARP检测到的在线设备
             }
         end
     end
 
-    -- 解析DHCP租约（包含主机名）
+    -- 改进的DHCP租约解析
     local dhcp_leases = sys.exec("cat /tmp/dhcp.leases 2>/dev/null") or ""
     for line in dhcp_leases:gmatch("[^\r\n]+") do
         local parts = {}
         for word in line:gmatch("%S+") do
             parts[#parts + 1] = word
         end
-        if #parts >= 5 then
-            local ts, mac, ip, hostname = parts[1], parts[2], parts[3], parts[4]
+        if #parts >= 3 then
+            local ts, mac, ip = parts[1], parts[2], parts[3]
             local clean_mac = sanitize_mac(mac)
             if clean_mac and validate_ipv4(ip) then
-                devices[clean_mac] = {
-                    ip = ip,
-                    type = "动态",  -- DHCP设备标记为动态
-                    active = os.time() - tonumber(ts) < 3600,
-                    hostname = hostname ~= "*" and hostname or nil
-                }
+                if not devices[clean_mac] then
+                    devices[clean_mac] = {
+                        ip = ip,
+                        type = "DHCP",
+                        active = os.time() - tonumber(ts) < 3600  -- 1小时内活跃
+                    }
+                else
+                    -- 保留现有active状态，仅更新IP和类型
+                    devices[clean_mac].ip = ip
+                    devices[clean_mac].type = "DHCP"
+                end
             end
         end
     end
 
-    -- 合并静态设备信息
+    -- 合并静态设备信息（优先级最低）
     local static_devices = get_static_entries()
-    for mac, info in pairs(static_devices) do
-        if type(info) == "table" then  -- 静态DHCP配置
-            if devices[mac] then
-                devices[mac].type = "静态"
-                devices[mac].static_name = info.name
-            else
-                devices[mac] = {
-                    ip = info.ip,
-                    type = "静态",
-                    active = false,
-                    static_name = info.name
-                }
-            end
-        else  -- /etc/ethers配置
-            if devices[mac] then
-                devices[mac].type = "静态"
-            else
-                devices[mac] = {
-                    ip = info,
-                    type = "静态",
-                    active = false
-                }
-            end
+    for mac, ip in pairs(static_devices) do
+        if devices[mac] then
+            -- 保留现有状态，仅更新IP和类型
+            devices[mac].ip = ip
+            devices[mac].type = "静态"
+        else
+            devices[mac] = {
+                ip = ip,
+                type = "静态",
+                active = false  -- 默认离线状态
+            }
         end
     end
 
-    -- 生成显示列表
+    -- 生成最终列表
     local sorted = {}
     for mac, data in pairs(devices) do
-        local display_info = get_display_info(
-            mac,
-            data.ip,
-            data.hostname,
-            data.static_name
-        )
-        
         sorted[#sorted+1] = {
             mac = mac,
-            display = string.format("%s %s (%s) [%s]",  -- 新显示格式
-                data.active and "●" or "○",  -- 状态图标
-                mac,                        -- 标准MAC格式
-                display_info:sub(1, 14),     -- 用户信息限制14字符
-                data.type                   -- 完整类型名称
+            ip = data.ip,
+            display = string.format("%s %s (%s) [%s]", 
+                data.active and "●" or "○",  -- 在线状态指示
+                mac,
+                data.ip,
+                data.type
             ),
             active = data.active
         }
     end
 
-    -- 排序逻辑
+    -- 排序逻辑：在线设备优先，MAC地址升序
     table.sort(sorted, function(a, b)
         if a.active ~= b.active then
-            return a.active
+            return a.active  -- 在线设备排在前
         end
         return a.mac < b.mac
     end)
@@ -180,20 +150,20 @@ local function get_connected_clients()
     return sorted
 end
 
--- 界面配置
+-- 界面初始化
 m = Map("macfilter", translate("MAC地址过滤"), 
-    translate("设备列表（●=在线）显示格式：MAC (设备信息) [类型]"))
+    translate("支持动态/静态设备显示（●表示在线设备）"))
 
 m.on_after_commit = function(self)
     os.execute("/etc/init.d/macfilter reload >/dev/null 2>&1")
 end
 
-s = m:section(TypedSection, "rule", translate("过滤规则"))
+s = m:section(TypedSection, "rule", translate("设备列表"))
 s.template = "cbi/tblsection"
 s.addremove = true
 s.anonymous = true
 
-  -- 设备选择下拉列表
+-- 设备选择下拉列表
 o = s:option(ListValue, "mac", translate("选择设备"))
 o:value("", "-- 请选择设备 --")
 
