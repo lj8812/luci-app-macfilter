@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-app-macfilter
 
 LUCI_TITLE:=MAC Address Filtering Plugin
-LUCI_DEPENDS:=+iptables +luci-compat +kmod-ipt-conntrack +ebtables +ipset +kmod-ipt-ipset
+LUCI_DEPENDS:=+iptables +luci-compat +kmod-ipt-conntrack +ipset +kmod-ipt-ipset
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk
