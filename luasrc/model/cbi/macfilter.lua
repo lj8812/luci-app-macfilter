@@ -1,34 +1,67 @@
-local uci = luci.model.uci.cursor()
+-- luasrc/model/cbi/macfilter.lua
+local m, s, o
 local sys = require "luci.sys"
+local uci = require "luci.model.uci".cursor()
 
-m = Map("webrestrict", translate("访问限制"),
-    translate("基于MAC地址的实时网络控制（使用iptables/ipset）"))
+-- 增强版设备发现（仅IPv4）
+local function get_connected_clients()
+    local devices = {}
+    
+    -- 核心方法：ARP表扫描（仅IPv4）
+    local arp_cmd = "ip neigh show 2>/dev/null | awk '$1 ~ /^[0-9]{1,3}\\./{print $1,$5}'"
+    local arp_scan = sys.exec(arp_cmd)
+    for ip, mac in arp_scan:gmatch("(%S+)%s+(%S+)") do
+        if mac ~= "00:00:00:00:00:00" and ip:match("^%d+%.%d+%.%d+%.%d+$") then
+            mac = mac:upper():gsub("-", ":")
+            devices[mac] = string.format("%s (%s)", mac, ip)
+        end
+    end
 
-m.on_after_commit = function(self)
-    os.execute("/usr/lib/webrestrict/apply_rules.sh >/dev/null 2>&1")
+    -- 补充DHCP租约（仅IPv4）
+    local dhcp_leases = sys.exec("cat /tmp/dhcp.leases 2>/dev/null")
+    for ts, mac, ip, name in dhcp_leases:gmatch("(%d+) (%S+) (%S+) (%S+)\n?") do
+        if ip:match("^%d+%.%d+%.%d+%.%d+$") then
+            local norm_mac = mac:upper():gsub("-", ":")
+            if not devices[norm_mac] then
+                devices[norm_mac] = string.format("%s (%s)", norm_mac, ip)
+            end
+        end
+    end
+
+    return devices
 end
 
-s = m:section(TypedSection, "basic", translate("全局设置"))
+m = Map("macfilter", translate("MAC地址过滤"), 
+    translate("实时阻断指定设备的网络访问（仅显示IPv4设备）"))
+
+m.apply_on_parse = true
+function m.on_after_commit(self)
+    os.execute("/etc/init.d/macfilter reload >/dev/null 2>&1")
+end
+
+s = m:section(TypedSection, "rule", translate("设备列表"))
+s.template = "cbi/tblsection"
+s.addremove = true
 s.anonymous = true
 
-o = s:option(Flag, "enabled", translate("启用控制"))
-o.rmempty = false
+o = s:option(ListValue, "mac", translate("选择设备"))
+o:value("", "-- 请选择在线设备 --")
 
-mode = s:option(ListValue, "mode", translate("控制模式"))
-mode:value("blacklist", translate("黑名单模式（禁止列表设备）"))
-mode:value("whitelist", translate("白名单模式（仅允许列表设备）"))
+local clients = get_connected_clients()
+for mac, desc in pairs(clients) do
+    o:value(mac, desc)
+end
 
-clients = m:section(TypedSection, "client", translate("受控设备"), 
-    translate("MAC地址格式：00:11:22:33:44:55"))
-clients.template = "cbi/tblsection"
-clients.addremove = true
+o.widget = "select"
+o:depends({mode = "blacklist"})
 
-mac = clients:option(Value, "mac", translate("MAC地址"))
-mac.datatype = "macaddr"
-mac.rmempty = false
-
-sys.net.mac_hints(function(mac, name)
-    mac:value(mac, "%s (%s)" %{mac, name or "未知设备"})
-end)
+function o.validate(self, value)
+    if value ~= "" then
+        if not value:match("^%x%x:%x%x:%x%x:%x%x:%x%x:%x%x$") then
+            return nil, translate("MAC地址格式错误")
+        end
+    end
+    return value
+end
 
 return m
