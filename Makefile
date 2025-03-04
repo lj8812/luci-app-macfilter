@@ -5,7 +5,7 @@ PKG_VERSION:=1.0
 PKG_RELEASE:=1
 
 LUCI_TITLE:=MAC Address Filtering Plugin
-LUCI_DEPENDS:=+ipset +kmod-ipt-ipset
+LUCI_DEPENDS:=+iptables +luci-compat +kmod-ipt-conntrack +ebtables +ipset +kmod-ipt-ipset
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk
