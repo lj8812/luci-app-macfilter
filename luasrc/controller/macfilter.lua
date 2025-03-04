@@ -1,6 +1,5 @@
-module("luci.controller.macfilter", package.seeall)
+module("luci.controller.webrestrict", package.seeall)
 
 function index()
-    -- 在"服务"菜单下添加条目
-    entry({"admin", "services", "macfilter"}, cbi("macfilter"), _("MAC Filter"), 30).dependent = false
+    entry({"admin", "services", "webrestrict"}, cbi("webrestrict"), _("访问限制"), 60)
 end
