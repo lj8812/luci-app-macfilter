@@ -1,0 +1,31 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "MAC Filter"
+msgstr "MAC地址过滤"
+
+msgid "MAC Address Filter"
+msgstr "MAC地址过滤配置"
+
+msgid "Configure MAC addresses to block network access in real-time."
+msgstr "实时配置需要阻断网络访问的MAC地址。"
+
+msgid "Blocked MAC Addresses"
+msgstr "已阻断的MAC地址"
+
+msgid "MAC Address"
+msgstr "MAC地址"
+
+msgid "Select Device"
+msgstr "选择设备"
+
+msgid "MAC address format error, example: 00:11:22:33:44:55"
+msgstr "MAC地址格式错误，示例：00:11:22:33:44:55"
+
+msgid "Device List"
+msgstr "设备列表"
+
+msgid "Choose online devices from dropdown or enter MAC manually"
+msgstr "从下拉菜单中选择在线设备或手动输入MAC地址"
