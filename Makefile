@@ -1,6 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-macfilter
+PKG_VERSION:=2.0
+PKG_RELEASE:=1
 
 LUCI_TITLE:=MAC Address Filtering Plugin
 LUCI_DEPENDS:=+iptables +luci-compat +kmod-ipt-conntrack +ipset +kmod-ipt-ipset
