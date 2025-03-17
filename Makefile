@@ -24,8 +24,4 @@ define Package/$(PKG_NAME)/install
     $(INSTALL_BIN) ./root/etc/init.d/macfilter $(1)/etc/init.d/
 endef
 
-# 国际化支持
-PO_CONFIG:=../../build/i18n-config
-PO_LANGUAGES:=zh_Hans
-
 $(eval $(call BuildPackage,$(PKG_NAME)))
