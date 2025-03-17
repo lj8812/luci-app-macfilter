@@ -1,5 +1,7 @@
-config global
-    option enabled '1'
+# /etc/config/macfilter
+config feature 'access_control'
+    option mode 'blacklist'
 
-config rule
+config rule 'demo_rule'
     option mac '00:11:22:33:44:55'
+    option enabled '1'
