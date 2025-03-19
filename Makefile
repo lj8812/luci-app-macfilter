@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-macfilter
-PKG_VERSION:=3.0
+PKG_VERSION:=3.2
 PKG_RELEASE:=1
 
 LUCI_TITLE:=MAC Address Filtering Plugin
